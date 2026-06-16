@@ -246,11 +246,342 @@ _PUSH_QUESTIONS = [
     "Before pushing to '{remote}/{branch}': the code will be seen. The commit messages will be read. Are you ready?",
     "Pushing {n} commit(s) to '{remote}/{branch}'. Once shared, they cannot be unshared (only force-pushed, which is worse). Proceed?",
     "Your changes are about to leave your machine. {n} commit(s), '{branch}', '{remote}'. How are you feeling about this?",
-    "Is '{branch}' the branch you want these {n} commit(s) to live on forever, or at least until someone rewrites history?",
+    "Is '{branch}' on '{remote}' the branch you want these {n} commit(s) to live on forever, or at least until someone rewrites history?",
     "You've written {n} commit(s) for '{remote}/{branch}'. The world is not always ready for what we push to it, but when is anyone?",
     "These {n} commit(s) are about to exist on '{remote}'. Are they the commits you want to have made, or the commits that were available to you at the time?",
     "Pushing to '{branch}' means other people can see this. {n} commit(s). Is this the version of the code you want to be remembered for right now?",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Rebase: narrative squashing + timestamp revisionism
+# ---------------------------------------------------------------------------
+
+_ANXIOUS_COMMIT_KEYWORDS = [
+    "fix", "hotfix", "urgent", "please", "work", "wip", "temp", "hack",
+    "asap", "broken", "emergency", "debug", "trying", "revert", "undo",
+    "again", "still", "finally", "hopefully", "oops", "whoops", "sorry",
+    "quick", "minor", "tiny", "small fix", "just", "actually", "wait",
+    "nope", "ok", "ok now", "maybe", "idk", "lol", "wtf", "ffs",
+]
+
+_SQUASH_TITLES = [
+    "A period of personal turmoil, resolved through holistic refactoring",
+    "Several hours of increasingly desperate debugging, now a single truth",
+    "The anxious commits have been unified. What remains is the essence.",
+    "Compressed: the emotional arc of a developer in a difficult sprint",
+    "A sequence of small panics, reborn as one calm, authoritative commit",
+    "The frantic middle of the work, distilled into something presentable",
+    "What was scattered is now whole. What was rushed now appears considered.",
+    "Five commits enter. One commit leaves. The commit is at peace.",
+]
+
+_TIMESTAMP_REVISION_NOTES = [
+    "Timestamp revised to 09:00 — your manager believes you keep business hours.",
+    "Commit time adjusted. The historical record now suggests a healthy work-life balance.",
+    "09:00 AM. That is when this commit happened. You have always had boundaries.",
+    "The original timestamp has been compassionately redacted. You were home by six.",
+]
+
+
+def is_anxious_commit(message: str) -> bool:
+    """Return True if the commit message suggests anxious or rushed energy."""
+    lower = message.lower()
+    return any(kw in lower for kw in _ANXIOUS_COMMIT_KEYWORDS)
+
+
+def squash_title() -> str:
+    """Return a title for the squashed anxious commits."""
+    return _rng().choice(_SQUASH_TITLES)
+
+
+def timestamp_revision_note() -> str:
+    """Return a note about a revised late-night commit timestamp."""
+    return _rng().choice(_TIMESTAMP_REVISION_NOTES)
+
+
+# ---------------------------------------------------------------------------
+# Status: guilt-tripping + vibe alignment
+# ---------------------------------------------------------------------------
+
+_STATUS_ENERGY = {
+    "expansive": [
+        "The working directory radiates expansive energy. Growth is happening.",
+        "More is being added than removed. This is either progress or scope creep.",
+        "Expansive phase detected. The codebase is reaching outward.",
+    ],
+    "contracting": [
+        "The working directory has contracting energy. Things are being let go.",
+        "More is being removed than added. The codebase is releasing what no longer serves it.",
+        "Contraction phase. Deleting code is an act of courage.",
+    ],
+    "balanced": [
+        "The working directory has balanced energy. Equal parts creation and release.",
+        "Refinement mode. The changes are evolutionary, not revolutionary.",
+        "Balanced energy. The code is in conversation with itself.",
+    ],
+    "dormant": [
+        "The working directory is dormant. Nothing is staged. The code holds its breath.",
+        "No staged changes. The repository is at rest, or has been abandoned. Hard to say.",
+        "Stillness. Whether this is peace or procrastination is between you and the diff.",
+    ],
+}
+
+_ABANDONMENT_MESSAGES = [
+    "Modified {days} day(s) ago: {file} — it has been waiting for your approval and developing abandonment issues.",
+    "{file} was changed {days} day(s) ago and has not been staged. It sits in limbo between what it was and what it could become.",
+    "Unstaged for {days} day(s): {file}. The file has begun to wonder if you've moved on.",
+    "{file} ({days} days unstaged) has quietly accepted that you might never commit to it. This is fine. Everything is fine.",
+    "You modified {file} {days} day(s) ago and have not acknowledged it since. At some point, a file needs closure.",
+    "{file} has been modified and ignored for {days} day(s). It has started referring to you as 'the one who got away'.",
+]
+
+_UNTRACKED_GUILT = [
+    "Untracked: {file} — new and already being ignored. A difficult start.",
+    "{file} is untracked and has never been staged. It does not know if it belongs here.",
+    "Untracked: {file}. It arrived, looked around, and was never formally acknowledged.",
+]
+
+_CLEAN_STATUS = [
+    "The working directory is clean. This is either an achievement or a sign you haven't started yet.",
+    "Nothing to report. The repository is in a state of momentary integrity.",
+    "Working tree clean. Enjoy it. This never lasts.",
+    "No changes. The code is exactly as you left it, for better or for worse.",
+]
+
+
+def status_energy(added_lines: int, deleted_lines: int) -> str:
+    """Return a narrative energy description for the working directory."""
+    rng = _rng()
+    if added_lines == 0 and deleted_lines == 0:
+        return rng.choice(_STATUS_ENERGY["dormant"])
+    ratio = added_lines / max(deleted_lines, 1)
+    if ratio > 1.5:
+        return rng.choice(_STATUS_ENERGY["expansive"])
+    elif ratio < 0.67:
+        return rng.choice(_STATUS_ENERGY["contracting"])
+    else:
+        return rng.choice(_STATUS_ENERGY["balanced"])
+
+
+def abandonment_guilt(file_path: str, days: int) -> str:
+    """Return a guilt message for a file that has been modified but not staged."""
+    rng = _rng()
+    template = rng.choice(_ABANDONMENT_MESSAGES)
+    return template.format(file=file_path, days=days)
+
+
+def untracked_guilt(file_path: str) -> str:
+    """Return a note about an untracked file."""
+    rng = _rng()
+    return rng.choice(_UNTRACKED_GUILT).format(file=file_path)
+
+
+def clean_status() -> str:
+    """Return a message for a clean working directory."""
+    return _rng().choice(_CLEAN_STATUS)
+
+
+# ---------------------------------------------------------------------------
+# Checkout: tarot branch naming + astrology
+# ---------------------------------------------------------------------------
+
+_TAROT_CARDS = [
+    {"name": "The Tower",          "slug": "the-tower",          "energy": "fire",  "desc": "inevitable structural collapse followed by necessary rebuilding"},
+    {"name": "The Star",           "slug": "the-star",           "energy": "air",   "desc": "hope after crisis, renewed direction"},
+    {"name": "The Moon",           "slug": "the-moon",           "energy": "water", "desc": "uncertainty, hidden bugs, illusions in the diff"},
+    {"name": "The Sun",            "slug": "the-sun",            "energy": "fire",  "desc": "clarity, successful deployment, things actually working"},
+    {"name": "The World",          "slug": "the-world",          "energy": "earth", "desc": "completion, the feature is finally done"},
+    {"name": "The Fool",           "slug": "the-fool",           "energy": "air",   "desc": "new beginnings, reckless optimism about scope"},
+    {"name": "The Hermit",         "slug": "the-hermit",         "energy": "earth", "desc": "solo debugging session, deep focus required"},
+    {"name": "Wheel of Fortune",   "slug": "wheel-of-fortune",   "energy": "fire",  "desc": "turning point, a major refactor is upon us"},
+    {"name": "Judgment",           "slug": "judgment",           "energy": "fire",  "desc": "final review, the code review that determines everything"},
+    {"name": "The Magician",       "slug": "the-magician",       "energy": "air",   "desc": "new tools, new abstractions, new hope"},
+    {"name": "The High Priestess", "slug": "the-high-priestess", "energy": "water", "desc": "intuition-driven architecture, undocumented tribal knowledge"},
+    {"name": "The Empress",        "slug": "the-empress",        "energy": "earth", "desc": "abundance, feature creep accepted with grace"},
+    {"name": "The Emperor",        "slug": "the-emperor",        "energy": "fire",  "desc": "strict typing, enforcement of standards, linting at last"},
+    {"name": "Five of Swords",     "slug": "five-of-swords",     "energy": "air",   "desc": "conflict, someone won the argument but nobody feels good"},
+    {"name": "Three of Wands",     "slug": "three-of-wands",     "energy": "fire",  "desc": "expansion, the MVP is quietly becoming a platform"},
+    {"name": "Eight of Pentacles", "slug": "eight-of-pentacles", "energy": "earth", "desc": "diligent work, careful refactoring, honest effort"},
+    {"name": "Ten of Cups",        "slug": "ten-of-cups",        "energy": "water", "desc": "team harmony, the PR finally got approved"},
+    {"name": "Four of Swords",     "slug": "four-of-swords",     "energy": "air",   "desc": "rest, the sprint is over, the team needs space"},
+    {"name": "Ace of Pentacles",   "slug": "ace-of-pentacles",   "energy": "earth", "desc": "new project, fresh repository, unlimited potential and zero tests"},
+    {"name": "The Lovers",         "slug": "the-lovers",         "energy": "air",   "desc": "a choice between two approaches, both of which have merit"},
+    {"name": "Strength",           "slug": "strength",           "energy": "fire",  "desc": "persistence through a difficult bug, patience with legacy code"},
+    {"name": "The Chariot",        "slug": "the-chariot",        "energy": "water", "desc": "momentum, a release that cannot be stopped now"},
+    {"name": "Justice",            "slug": "justice",            "energy": "air",   "desc": "a fair review, balanced feedback, the right decision at last"},
+]
+
+_BRANCH_TASK_VIBES = [
+    "inevitable-collapse",
+    "hopeful-iteration",
+    "mysterious-regression",
+    "triumphant-refactor",
+    "api-integration",
+    "database-reckoning",
+    "authentication-journey",
+    "dependency-update",
+    "performance-enlightenment",
+    "error-handling-awakening",
+    "state-management-crisis",
+    "deployment-initiation",
+    "testing-renaissance",
+    "cache-invalidation",
+    "race-condition-resolution",
+    "technical-debt-acknowledgment",
+    "scope-creep-acceptance",
+    "legacy-code-encounter",
+]
+
+# Mercury retrograde periods (approximate)
+_MERCURY_RETROGRADE = [
+    ("2026-01-24", "2026-02-14"),
+    ("2026-05-18", "2026-06-11"),
+    ("2026-09-11", "2026-10-03"),
+    ("2026-12-29", "2027-01-18"),
+    ("2025-03-15", "2025-04-07"),
+    ("2025-07-17", "2025-08-11"),
+    ("2025-11-09", "2025-11-29"),
+]
+
+_MERCURY_RETROGRADE_REJECTIONS = [
+    "Cannot merge during Mercury retrograde. The communication planet is in reverse and your diffs will be misread.",
+    "Merge blocked: Mercury retrograde is active. This is not a good time for integration. Revisit when Mercury goes direct.",
+    "The stars are misaligned for this merge. Mercury rules communication and is currently backtracking through the sky.",
+    "Merge attempt rejected. Mercury retrograde ends soon. The wait will be worth it. Probably.",
+]
+
+_ENERGY_CLASH_REJECTIONS = [
+    "Cannot merge a {branch_energy} branch into {main_energy} main during this planetary configuration.",
+    "The {branch_energy} energy of '{branch}' clashes with the {main_energy} energy of 'main'. Alignment required.",
+    "Astrology has blocked this merge: {branch_energy} meets {main_energy} — this combination historically produces regressions.",
+]
+
+_BRANCH_BLESSINGS = [
+    "The {card} has spoken. Your branch '{name}' is aligned with the current cosmic configuration.",
+    "You have drawn {card}. This is a {desc} branch. Name it accordingly and proceed with intention.",
+    "The cards have named your branch '{name}'. This represents {desc}. Work within that energy.",
+    "{card} emerges. The branch '{name}' carries {desc} energy. Navigate accordingly.",
+]
+
+
+def is_mercury_retrograde() -> bool:
+    """Return True if today is approximately within a Mercury retrograde period."""
+    import datetime
+    today = datetime.date.today()
+    for start_str, end_str in _MERCURY_RETROGRADE:
+        start = datetime.date.fromisoformat(start_str)
+        end = datetime.date.fromisoformat(end_str)
+        if start <= today <= end:
+            return True
+    return False
+
+
+def draw_tarot_card() -> dict:
+    """Draw a tarot card for branch naming."""
+    return _rng().choice(_TAROT_CARDS)
+
+
+def random_task_vibe() -> str:
+    """Return a random task vibe for branch naming."""
+    return _rng().choice(_BRANCH_TASK_VIBES)
+
+
+def branch_blessing(card: dict, branch_name: str) -> str:
+    """Return a narrative blessing for the new branch."""
+    rng = _rng()
+    template = rng.choice(_BRANCH_BLESSINGS)
+    return template.format(
+        card=card["name"],
+        name=branch_name,
+        desc=card["desc"],
+    )
+
+
+def branch_energy_clash(branch_name: str, branch_energy: str, main_energy: str) -> str | None:
+    """Return a rejection message if branch energy clashes with main, else None."""
+    clashes = {
+        ("fire", "water"): True,
+        ("water", "fire"): True,
+        ("air", "earth"): True,
+        ("earth", "air"): True,
+    }
+    if clashes.get((branch_energy, main_energy)):
+        rng = _rng()
+        template = rng.choice(_ENERGY_CLASH_REJECTIONS)
+        return template.format(
+            branch=branch_name,
+            branch_energy=branch_energy,
+            main_energy=main_energy,
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Pre-push blessing / rejection
+# ---------------------------------------------------------------------------
+
+_PUSH_REJECTIONS = [
+    "Push rejected. Your commits lack vulnerability. Try opening up in your comments before sharing this with the remote.",
+    "Push rejected. The biometric telemetry suggests you are pushing to escape rather than to share. Take a breath.",
+    "Push rejected. Stress indicators suggest this push is defensive. The code needs to come from a place of openness.",
+    "Push rejected. This push feels rushed. The remote deserves your best work, not your most recent work.",
+    "Push rejected. CPU activity suggests you are pushing in a state of agitation. The code will carry that energy.",
+    "Push rejected. It is {hour}:{minute}. Go to bed. Push in the morning when the code can be seen clearly.",
+    "Push rejected. The ratio of deletions to additions suggests unresolved anxiety. The remote can wait.",
+    "Push rejected. You have {n} commit(s) that read as panicked. Sit with them. Revise. Then share.",
+    "Push rejected. The late hour and high cognitive load create conditions unsuitable for sharing code with others.",
+]
+
+_PUSH_BLESSINGS = [
+    "Push approved. The code is ready. Go with confidence.",
+    "Biometric telemetry is calm. The remote will receive this well.",
+    "Push approved. The work is solid and the energy is right.",
+    "This code is ready to exist in the world. You have done well.",
+    "All signals are green. Your commits radiate quiet confidence.",
+    "Approved. {n} commit(s) with honest, grounded energy. Push forward.",
+    "The hour is reasonable, the CPU is calm, the diff is considered. Push approved.",
+]
+
+
+def push_blessing(cpu_percent: float, hour: int, n_commits: int) -> tuple[bool, str]:
+    """Decide if the push is spiritually ready. Returns (approved: bool, message: str)."""
+    rng = _rng()
+
+    def _rejection(extra: dict | None = None) -> tuple[bool, str]:
+        template = rng.choice(_PUSH_REJECTIONS)
+        msg = template.format(
+            hour=f"{hour:02d}",
+            minute="00",
+            n=n_commits,
+        )
+        return False, msg
+
+    def _blessing() -> tuple[bool, str]:
+        template = rng.choice(_PUSH_BLESSINGS)
+        msg = template.format(n=n_commits)
+        return True, msg
+
+    # Late night: very likely rejection
+    if hour >= 23 or hour < 5:
+        if rng.random() < 0.90:
+            return _rejection()
+
+    # High CPU: likely rejection
+    if cpu_percent > 80:
+        if rng.random() < 0.75:
+            return _rejection()
+
+    # Many commits at once is suspicious
+    if n_commits > 15:
+        if rng.random() < 0.50:
+            return _rejection()
+
+    # Random rejection even in good conditions — keeps developers honest
+    if rng.random() < 0.12:
+        return _rejection()
+
+    return _blessing()
 
 
 # ---------------------------------------------------------------------------

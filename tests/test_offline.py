@@ -259,6 +259,145 @@ def test_diff_keywords_counts_files():
 
 
 # ---------------------------------------------------------------------------
+# rebase vibes
+# ---------------------------------------------------------------------------
+
+def test_is_anxious_commit_fix():
+    assert vibes.is_anxious_commit("fix the thing") is True
+
+def test_is_anxious_commit_hotfix():
+    assert vibes.is_anxious_commit("hotfix: urgent patch") is True
+
+def test_is_anxious_commit_calm():
+    assert vibes.is_anxious_commit("Refactor authentication module") is False
+
+def test_squash_title_returns_string():
+    title = vibes.squash_title()
+    assert isinstance(title, str)
+    assert len(title) > 10
+
+def test_squash_title_nondeterministic():
+    seen = {vibes.squash_title() for _ in range(10)}
+    assert len(seen) > 1
+
+
+# ---------------------------------------------------------------------------
+# status vibes
+# ---------------------------------------------------------------------------
+
+def test_status_energy_expansive():
+    result = vibes.status_energy(100, 10)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+def test_status_energy_contracting():
+    result = vibes.status_energy(5, 100)
+    assert isinstance(result, str)
+
+def test_status_energy_dormant():
+    result = vibes.status_energy(0, 0)
+    assert isinstance(result, str)
+
+def test_status_energy_balanced():
+    result = vibes.status_energy(50, 50)
+    assert isinstance(result, str)
+
+def test_abandonment_guilt_returns_string():
+    result = vibes.abandonment_guilt("config.json", 3)
+    assert isinstance(result, str)
+    assert "config.json" in result
+
+def test_abandonment_guilt_contains_days():
+    result = vibes.abandonment_guilt("foo.py", 7)
+    assert "7" in result
+
+def test_abandonment_guilt_nondeterministic():
+    seen = {vibes.abandonment_guilt("x.py", 3) for _ in range(10)}
+    assert len(seen) > 1
+
+def test_untracked_guilt_returns_string():
+    result = vibes.untracked_guilt("new_file.py")
+    assert isinstance(result, str)
+    assert "new_file.py" in result
+
+def test_clean_status_returns_string():
+    result = vibes.clean_status()
+    assert isinstance(result, str)
+    assert len(result) > 5
+
+
+# ---------------------------------------------------------------------------
+# checkout / tarot vibes
+# ---------------------------------------------------------------------------
+
+def test_draw_tarot_card_returns_dict():
+    card = vibes.draw_tarot_card()
+    assert isinstance(card, dict)
+    assert "name" in card
+    assert "slug" in card
+    assert "energy" in card
+    assert "desc" in card
+
+def test_draw_tarot_card_nondeterministic():
+    cards = {vibes.draw_tarot_card()["name"] for _ in range(20)}
+    assert len(cards) > 1
+
+def test_branch_blessing_returns_string():
+    card = vibes.draw_tarot_card()
+    result = vibes.branch_blessing(card, "the-tower/api-integration")
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+def test_branch_energy_clash_fire_water():
+    result = vibes.branch_energy_clash("my-branch", "fire", "water")
+    assert result is not None
+    assert isinstance(result, str)
+
+def test_branch_energy_clash_same_energy():
+    result = vibes.branch_energy_clash("my-branch", "fire", "fire")
+    assert result is None
+
+def test_is_mercury_retrograde_returns_bool():
+    result = vibes.is_mercury_retrograde()
+    assert isinstance(result, bool)
+
+def test_random_task_vibe_returns_string():
+    result = vibes.random_task_vibe()
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
+# pre-push blessing
+# ---------------------------------------------------------------------------
+
+def test_push_blessing_returns_tuple():
+    approved, msg = vibes.push_blessing(50.0, 10, 3)
+    assert isinstance(approved, bool)
+    assert isinstance(msg, str)
+    assert len(msg) > 0
+
+def test_push_blessing_late_night_mostly_rejected():
+    results = [vibes.push_blessing(20.0, 2, 1)[0] for _ in range(30)]
+    rejections = [r for r in results if r is False]
+    assert len(rejections) >= 20, "Late night pushes should mostly be rejected"
+
+def test_push_blessing_high_cpu_mostly_rejected():
+    results = [vibes.push_blessing(95.0, 14, 2)[0] for _ in range(30)]
+    rejections = [r for r in results if r is False]
+    assert len(rejections) >= 15, "High CPU pushes should mostly be rejected"
+
+def test_push_blessing_reasonable_conditions_sometimes_approved():
+    results = [vibes.push_blessing(20.0, 10, 2)[0] for _ in range(30)]
+    approvals = [r for r in results if r is True]
+    assert len(approvals) >= 10, "Calm conditions should sometimes be approved"
+
+def test_push_blessing_message_nondeterministic():
+    messages = {vibes.push_blessing(90.0, 14, 5)[1] for _ in range(15)}
+    assert len(messages) > 1
+
+
+# ---------------------------------------------------------------------------
 # merge-driver (offline)
 # ---------------------------------------------------------------------------
 

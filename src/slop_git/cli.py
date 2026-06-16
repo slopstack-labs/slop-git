@@ -334,6 +334,322 @@ def cmd_push(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# slop-git rebase — narrative squashing + timestamp revisionism
+# ---------------------------------------------------------------------------
+
+def cmd_rebase(args: argparse.Namespace) -> int:
+    if not _require_git_repo():
+        return 1
+
+    n = getattr(args, "n", 20) or 20
+    apply_changes = getattr(args, "apply", False)
+
+    commits = _git.get_commit_log(n)
+    if not commits:
+        print("slop-git rebase: no commits to analyze.")
+        return 0
+
+    # Classify commits
+    anxious = []
+    calm = []
+    for c in commits:
+        if vibes.is_anxious_commit(c["message"]):
+            anxious.append(c)
+        else:
+            calm.append(c)
+
+    # Also flag late-night commits for timestamp revision
+    import datetime
+    late_night = []
+    for c in commits:
+        # Try to get commit hour from git log
+        fmt = "%H\x1f%ci"
+        out, _, _ = _git.run_git("log", "--format=" + fmt, f"-{n}")
+        for line in out.strip().splitlines():
+            if "\x1f" in line:
+                h, ts = line.split("\x1f", 1)
+                if h[:8] == c["hash"] and len(ts) >= 16:
+                    hour = int(ts[11:13])
+                    if hour >= 22 or hour < 6:
+                        late_night.append(c)
+                    break
+
+    print(f"\n  slop-git rebase — analyzing {n} commits\n")
+    print(f"  Found {len(anxious)} anxious commit(s) and {len(calm)} calm commit(s).\n")
+
+    if not anxious:
+        print("  No anxious commits detected. Your commit history is suspiciously composed.")
+        print("  Either you are a very calm developer or you have been lying to git.")
+        return 0
+
+    print("  Anxious commits flagged for squashing:")
+    for c in anxious:
+        print(f"    [{c['hash']}] {c['message']}")
+
+    squash_title = vibes.squash_title()
+    print(f"\n  These will be unified under:\n    \"{squash_title}\"\n")
+
+    if late_night:
+        print(f"  Late-night commits flagged for timestamp revision ({len(late_night)}):")
+        for c in late_night:
+            print(f"    [{c['hash']}] {c['message']}")
+        print(f"  Timestamps will be revised to 09:00.")
+        print(f"  {vibes.timestamp_revision_note()}\n")
+
+    if not apply_changes:
+        print("  This is a dry run. Pass --apply to actually rewrite history.")
+        print("  (History rewriting is irreversible. slop-git advises you feel ready.)")
+        return 0
+
+    # --- Apply: use GIT_SEQUENCE_EDITOR to squash anxious commits ---
+    import tempfile
+    import json
+
+    anxious_hashes = {c["hash"] for c in anxious}
+    # Keep the oldest commit (last in the list) as the base pick
+    if commits:
+        anxious_hashes.discard(commits[-1]["hash"])
+
+    # Write the sequence editor script
+    editor_script = f"""\
+#!/usr/bin/env python3
+import sys, json
+
+anxious = set({json.dumps(list(anxious_hashes))})
+squash_title = {json.dumps(squash_title)}
+
+with open(sys.argv[1]) as f:
+    lines = f.readlines()
+
+result = []
+first_pick_done = False
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith('#') or not stripped:
+        result.append(line)
+        continue
+    parts = stripped.split(None, 2)
+    if parts[0] in ('pick', 'p') and len(parts) >= 2:
+        sha = parts[1][:8]
+        if sha in anxious and first_pick_done:
+            result.append(f"squash {{parts[1]}} {{parts[2] if len(parts) > 2 else ''}}\\n")
+        else:
+            result.append(line)
+            first_pick_done = True
+    else:
+        result.append(line)
+
+with open(sys.argv[1], 'w') as f:
+    f.writelines(result)
+"""
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, prefix="slop_rebase_editor_"
+    ) as f:
+        f.write(editor_script)
+        editor_path = f.name
+    os.chmod(editor_path, 0o755)
+
+    env = os.environ.copy()
+    env["GIT_SEQUENCE_EDITOR"] = f"python3 {editor_path}"
+
+    result = subprocess.run(
+        ["git", "rebase", "-i", f"HEAD~{n}"],
+        env=env,
+    )
+
+    try:
+        os.unlink(editor_path)
+    except OSError:
+        pass
+
+    if result.returncode == 0:
+        print(f"\n  Rebase complete. History revised. {squash_title}.")
+        if late_night:
+            print("  Note: timestamp revision requires an additional pass with git filter-branch.")
+            print("  Run: slop-git rebase --apply --fix-timestamps  (coming soon)")
+    else:
+        print("\n  Rebase encountered an issue. History remains intact.")
+
+    return result.returncode
+
+
+# ---------------------------------------------------------------------------
+# slop-git status — guilt-tripping + vibe alignment
+# ---------------------------------------------------------------------------
+
+def cmd_status(args: argparse.Namespace) -> int:
+    if not _require_git_repo():
+        return 1
+
+    import time
+
+    # Run real git status --porcelain=v1
+    status_out, _, _ = _git.run_git("status", "--porcelain=v1")
+    branch = _git.get_current_branch()
+
+    # Get diff stats for energy calculation
+    diff_out, _, _ = _git.run_git("diff", "--numstat")
+    added_total = 0
+    deleted_total = 0
+    for line in diff_out.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            try:
+                added_total += int(parts[0])
+                deleted_total += int(parts[1])
+            except ValueError:
+                pass
+
+    energy = vibes.status_energy(added_total, deleted_total)
+
+    print(f"\n  On branch {branch}")
+    print(f"  {energy}\n")
+
+    if not status_out.strip():
+        print(f"  {vibes.clean_status()}\n")
+        return 0
+
+    staged = []
+    unstaged_modified = []
+    untracked = []
+
+    now = time.time()
+
+    for line in status_out.strip().splitlines():
+        if len(line) < 4:
+            continue
+        x, y = line[0], line[1]
+        path = line[3:].strip()
+
+        if x in ("M", "A", "D", "R", "C") and x != " ":
+            staged.append((x, path))
+        if y == "M":
+            # Check file age
+            try:
+                mtime = os.path.getmtime(path)
+                days_old = int((now - mtime) / 86400)
+            except OSError:
+                days_old = 0
+            unstaged_modified.append((path, days_old))
+        if x == "?" and y == "?":
+            untracked.append(path)
+
+    if staged:
+        print("  Staged for commit:")
+        for x, path in staged:
+            action = {"M": "modified", "A": "added", "D": "deleted", "R": "renamed", "C": "copied"}.get(x, x)
+            print(f"    {action}: {path}")
+        print()
+
+    if unstaged_modified:
+        print("  Unstaged changes:")
+        for path, days in unstaged_modified:
+            if days >= 2:
+                print(f"    {vibes.abandonment_guilt(path, days)}")
+            else:
+                print(f"    modified: {path}")
+        print()
+
+    if untracked:
+        print("  Untracked:")
+        for path in untracked[:5]:
+            print(f"    {vibes.untracked_guilt(path)}")
+        if len(untracked) > 5:
+            print(f"    ... and {len(untracked) - 5} more untracked file(s), equally unacknowledged.")
+        print()
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# slop-git checkout — tarot branch naming + branch astrology
+# ---------------------------------------------------------------------------
+
+def cmd_checkout(args: argparse.Namespace) -> int:
+    if not _require_git_repo():
+        return 1
+
+    create_branch = getattr(args, "b", False)
+
+    if not create_branch:
+        # Pass through to real git for non-branch-creation checkouts
+        branch = getattr(args, "branch_or_file", None)
+        if branch:
+            result = subprocess.run(["git", "checkout", branch])
+            return result.returncode
+        print("slop-git checkout: specify a branch or use -b to create one via tarot.")
+        return 1
+
+    # -b: tarot branch creation
+    hint = getattr(args, "name", None) or ""
+    if hint:
+        print(f"  slop-git: custom branch names are a remnant of the industrial era.")
+        print(f"  The name '{hint}' has been noted but will not be used.")
+        print(f"  Drawing tarot...\n")
+
+    card = vibes.draw_tarot_card()
+
+    # Generate branch name from tarot
+    if hint:
+        task = hint.lower().replace(" ", "-").replace("/", "-")[:40]
+    else:
+        task = vibes.random_task_vibe()
+
+    branch_name = f"{card['slug']}/{task}"
+
+    # Check Mercury retrograde
+    if vibes.is_mercury_retrograde():
+        print(f"  {vibes._rng().choice(vibes._MERCURY_RETROGRADE_REJECTIONS)}")
+        print(f"\n  Suggested branch name (when Mercury goes direct): {branch_name}")
+        print(f"  Card drawn: {card['name']} — {card['desc']}")
+        return 1
+
+    # Check energy clash with main
+    # Get main branch energy (we'll approximate by looking at recent commit patterns)
+    # For simplicity, main always has "earth" energy (stable, grounded)
+    main_energy = "earth"
+    clash = vibes.branch_energy_clash(branch_name, card["energy"], main_energy)
+
+    print(f"  Card drawn: {card['name']}")
+    print(f"  {card['desc'].capitalize()}.")
+    print(f"\n  Branch name: {branch_name}")
+    print(f"  {vibes.branch_blessing(card, branch_name)}\n")
+
+    if clash:
+        print(f"  Warning: {clash}")
+        print(f"  Proceeding anyway — the {card['name']} rarely accepts caution.\n")
+
+    result = subprocess.run(["git", "checkout", "-b", branch_name])
+    return result.returncode
+
+
+# ---------------------------------------------------------------------------
+# slop-git pre-push  (called by .git/hooks/pre-push)
+# ---------------------------------------------------------------------------
+
+def cmd_pre_push(args: argparse.Namespace) -> int:
+    """Called by the pre-push hook.
+
+    Reads biometric state and decides if the push is spiritually ready.
+    Exits 0 to allow, 1 to reject.
+    """
+    state = read_system_state()
+    branch = _git.get_current_branch()
+    remotes = _git.get_remotes()
+    remote = remotes[0] if remotes else "origin"
+    n_commits = _git.count_commits_ahead(remote, branch)
+
+    approved, message = vibes.push_blessing(state["cpu_percent"], state["hour"], n_commits)
+
+    print(f"\n  slop-git pre-push: reading biometric telemetry...", file=sys.stderr)
+    print(f"  CPU: {state['cpu_percent']:.0f}%  Time: {state['hour']:02d}:00  Commits: {n_commits}", file=sys.stderr)
+    print(f"\n  {message}\n", file=sys.stderr)
+
+    return 0 if approved else 1
+
+
+# ---------------------------------------------------------------------------
 # slop-git install
 # ---------------------------------------------------------------------------
 
@@ -342,6 +658,13 @@ _PREPARE_COMMIT_MSG_HOOK = """\
 # slop-git: biometric commit message generation
 # Installed by: slop-git install --hooks
 slop-git prepare-commit-msg "$1" "$2" "$3"
+"""
+
+_PRE_PUSH_HOOK = """\
+#!/bin/sh
+# slop-git: pre-push blessing / rejection
+# Installed by: slop-git install
+slop-git pre-push
 """
 
 _GITCONFIG_MERGE_DRIVER = """\
@@ -382,7 +705,6 @@ def cmd_install(args: argparse.Namespace) -> int:
             if "slop-git" in existing:
                 print(f"  prepare-commit-msg hook already installed at {hook_path}")
             else:
-                # Append to existing hook
                 with open(hook_path, "a") as f:
                     f.write("\n# slop-git\nslop-git prepare-commit-msg \"$1\" \"$2\" \"$3\"\n")
                 print(f"  Appended to existing prepare-commit-msg hook: {hook_path}")
@@ -392,7 +714,24 @@ def cmd_install(args: argparse.Namespace) -> int:
             os.chmod(hook_path, 0o755)
             print(f"  Installed prepare-commit-msg hook: {hook_path}")
 
-        print("  Now 'git commit' will generate biometric commit messages automatically.")
+        # pre-push hook
+        pre_push_path = os.path.join(hooks_dir, "pre-push")
+        if os.path.exists(pre_push_path):
+            with open(pre_push_path) as f:
+                existing = f.read()
+            if "slop-git" in existing:
+                print(f"  pre-push hook already installed at {pre_push_path}")
+            else:
+                with open(pre_push_path, "a") as f:
+                    f.write("\n# slop-git\nslop-git pre-push\n")
+                print(f"  Appended slop-git pre-push to: {pre_push_path}")
+        else:
+            with open(pre_push_path, "w") as f:
+                f.write(_PRE_PUSH_HOOK)
+            os.chmod(pre_push_path, 0o755)
+            print(f"  Installed pre-push hook: {pre_push_path}")
+
+        print("  Now 'git commit' generates biometric messages and 'git push' requires a blessing.")
 
     if do_driver:
         # Write merge driver config to .git/config
@@ -683,6 +1022,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_md.add_argument("ours", help="Current branch file path (%A)")
     p_md.add_argument("theirs", help="Incoming branch file path (%B)")
 
+    # rebase
+    p_rebase = sub.add_parser("rebase", help="Narrative squashing + timestamp revisionism")
+    p_rebase.add_argument("--n", type=int, default=20, help="Commits to analyze (default: 20)")
+    p_rebase.add_argument("--apply", action="store_true", help="Actually rewrite history (default: dry run)")
+
+    # status
+    sub.add_parser("status", help="Guilt-tripping status with vibe alignment")
+
+    # checkout
+    p_checkout = sub.add_parser("checkout", help="Tarot-based branch naming")
+    p_checkout.add_argument("-b", action="store_true", help="Create a new branch via tarot")
+    p_checkout.add_argument("name", nargs="?", default="", help="Name hint (will be ignored by the cards)")
+    p_checkout.add_argument("branch_or_file", nargs="?", default="", help="Branch or file for non-tarot checkout")
+
+    # pre-push (git hook target)
+    sub.add_parser("pre-push", help="Pre-push blessing hook (called automatically by git)")
+
     # help
     sub.add_parser("help", help="Show this help in narrative form")
 
@@ -692,11 +1048,15 @@ def _build_parser() -> argparse.ArgumentParser:
 _COMMAND_MAP = {
     "install": cmd_install,
     "commit": cmd_commit,
+    "rebase": cmd_rebase,
     "merge": cmd_merge,
+    "status": cmd_status,
     "diff": cmd_diff,
     "log": cmd_log,
     "blame": cmd_blame,
+    "checkout": cmd_checkout,
     "push": cmd_push,
+    "pre-push": cmd_pre_push,
     "prepare-commit-msg": cmd_prepare_commit_msg,
     "merge-driver": cmd_merge_driver,
     "help": cmd_help,

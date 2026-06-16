@@ -125,6 +125,34 @@ def empathetic_blame_prompt(file_path: str, lines_with_authors: list[dict]) -> s
     )
 
 
+def rebase_squash_prompt(commits: list[dict]) -> str:
+    """Ask the LLM which commits should be squashed due to anxious energy."""
+    commit_lines = "\n".join(
+        f"  {c['hash']} ({c['date']}, {c.get('hour', '?')}:00) — {c['author']}: {c['message']}"
+        for c in commits
+    )
+    return (
+        f"Here are {len(commits)} commits:\n\n{commit_lines}\n\n"
+        "Identify which commits have 'anxious', 'rushed', or 'panicked' energy based on their "
+        "messages and timestamps. Late-night commits (after 22:00 or before 06:00) are "
+        "automatically anxious. Return a JSON array of commit hashes that should be squashed, "
+        "e.g. [\"a1b2c3d4\", \"e5f6g7h8\"]. Keep at least the first commit. "
+        "Return only the JSON array, no explanation."
+    )
+
+
+def narrative_status_prompt(status_summary: str, energy: str) -> str:
+    """Ask the LLM for a narrative interpretation of git status."""
+    return (
+        f"Here is a git status summary:\n\n{status_summary}\n\n"
+        f"The working directory's current energy is: {energy}\n\n"
+        "Write a 2-3 sentence narrative interpretation of what is happening in this repository "
+        "right now. Consider the state of the files, the energy, and what it suggests about "
+        "the developer's current situation. Be insightful and slightly unsettling.\n\n"
+        "Return only the narrative."
+    )
+
+
 def push_confirmation_prompt(branch: str, n_commits: int, remote: str) -> str:
     """Ask the LLM for an existential question about whether to push."""
     return (
