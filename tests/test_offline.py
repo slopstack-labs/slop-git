@@ -259,6 +259,103 @@ def test_diff_keywords_counts_files():
 
 
 # ---------------------------------------------------------------------------
+# merge-driver (offline)
+# ---------------------------------------------------------------------------
+
+def test_merge_driver_writes_merged_content(tmp_path):
+    import tempfile, os
+    from slop_git.cli import cmd_merge_driver
+    import argparse
+
+    base = tmp_path / "base.py"
+    ours = tmp_path / "ours.py"
+    theirs = tmp_path / "theirs.py"
+
+    base.write_text("x = 0\n")
+    ours.write_text("x = 1\n")
+    theirs.write_text("x = 2\n")
+
+    args = argparse.Namespace(base=str(base), ours=str(ours), theirs=str(theirs))
+    rc = cmd_merge_driver(args)
+
+    assert rc == 0
+    merged = ours.read_text()
+    assert len(merged) > 0
+
+
+def test_merge_driver_identical_files_is_noop(tmp_path):
+    from slop_git.cli import cmd_merge_driver
+    import argparse
+
+    content = "x = 42\n"
+    base = tmp_path / "base.py"
+    ours = tmp_path / "ours.py"
+    theirs = tmp_path / "theirs.py"
+    for p in (base, ours, theirs):
+        p.write_text(content)
+
+    args = argparse.Namespace(base=str(base), ours=str(ours), theirs=str(theirs))
+    rc = cmd_merge_driver(args)
+    assert rc == 0
+    assert ours.read_text() == content
+
+
+# ---------------------------------------------------------------------------
+# prepare-commit-msg (offline)
+# ---------------------------------------------------------------------------
+
+def test_prepare_commit_msg_writes_message(tmp_path, monkeypatch):
+    from slop_git.cli import cmd_prepare_commit_msg
+    import argparse
+
+    msgfile = tmp_path / "COMMIT_EDITMSG"
+    msgfile.write_text("# Please enter the commit message.\n")
+
+    # Monkeypatch git diff to return a fake staged diff
+    monkeypatch.setattr("slop_git.cli._git.get_staged_diff", lambda: "+x = 1\n-x = 0\n")
+    monkeypatch.setattr("slop_git.cli.read_system_state", lambda: {"hour": 14, "cpu_percent": 50.0})
+
+    args = argparse.Namespace(msgfile=str(msgfile), source="", sha="")
+    rc = cmd_prepare_commit_msg(args)
+
+    assert rc == 0
+    content = msgfile.read_text()
+    non_comment = [l for l in content.splitlines() if l.strip() and not l.startswith("#")]
+    assert len(non_comment) > 0
+
+
+def test_prepare_commit_msg_skips_when_source_is_message(tmp_path):
+    from slop_git.cli import cmd_prepare_commit_msg
+    import argparse
+
+    msgfile = tmp_path / "COMMIT_EDITMSG"
+    original = "User provided message\n"
+    msgfile.write_text(original)
+
+    args = argparse.Namespace(msgfile=str(msgfile), source="message", sha="")
+    rc = cmd_prepare_commit_msg(args)
+
+    assert rc == 0
+    assert msgfile.read_text() == original  # unchanged
+
+
+def test_prepare_commit_msg_skips_empty_diff(tmp_path, monkeypatch):
+    from slop_git.cli import cmd_prepare_commit_msg
+    import argparse
+
+    msgfile = tmp_path / "COMMIT_EDITMSG"
+    original = "# comment\n"
+    msgfile.write_text(original)
+
+    monkeypatch.setattr("slop_git.cli._git.get_staged_diff", lambda: "")
+
+    args = argparse.Namespace(msgfile=str(msgfile), source="", sha="")
+    rc = cmd_prepare_commit_msg(args)
+    assert rc == 0
+    assert msgfile.read_text() == original  # unchanged when no staged diff
+
+
+# ---------------------------------------------------------------------------
 # package-level
 # ---------------------------------------------------------------------------
 
